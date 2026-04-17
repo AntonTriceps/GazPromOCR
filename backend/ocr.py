@@ -1,20 +1,17 @@
 from pathlib import Path
-
 import torch
 import pypdfium2 as pdfium
 from transformers import LightOnOcrForConditionalGeneration, LightOnOcrProcessor
-
-
-MODEL_NAME = "lightonai/LightOnOCR-2-1B"
+from config import OCR_MODEL_NAME
 
 
 def load_ocr_model():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     dtype = torch.bfloat16 if device == "cuda" else torch.float32
 
-    processor = LightOnOcrProcessor.from_pretrained(MODEL_NAME)
+    processor = LightOnOcrProcessor.from_pretrained(OCR_MODEL_NAME)
     model = LightOnOcrForConditionalGeneration.from_pretrained(
-        MODEL_NAME,
+        OCR_MODEL_NAME,
         torch_dtype=dtype,
     ).to(device)
 
@@ -22,7 +19,7 @@ def load_ocr_model():
     return processor, model, device, dtype
 
 
-def extract_text_from_scanned_pdf(pdf_path: str, processor, model, device, dtype) -> str:
+def extract_text_from_scanned_pdf(pdf_path, processor, model, device, dtype):
     path = Path(pdf_path)
 
     if not path.exists():

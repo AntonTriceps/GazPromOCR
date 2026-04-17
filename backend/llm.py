@@ -2,9 +2,7 @@ import json
 import re
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
-
-
-LLM_MODEL_NAME = "Qwen/Qwen2.5-1.5B-Instruct"
+from config import LLM_MODEL_NAME, SYSTEM_PROMPT, USER_PROMPT
 
 
 def load_llm():
@@ -21,33 +19,9 @@ def load_llm():
     return tokenizer, model, device
 
 
-def build_extraction_prompt(ocr_text: str) -> str:
+def build_extraction_prompt(ocr_text):
     return f"""
-Ты извлекаешь данные из OCR-текста документа.
-
-Задача:
-- Верни только валидный JSON
-- Не придумывай значения
-- Если поле не найдено, ставь null
-- Числа нормализуй
-- Не добавляй пояснений вне JSON
-
-Нужная схема:
-{{
-  "document_type": null,
-  "document_number": null,
-  "sender": null,
-  "receive_date": null,
-  "pickup_address": null,
-  "consignee": null,
-  "completion_request_number": null,
-  "preliminary_delivery_address": null,
-  "spec_gk": null,
-  "amount_rub": null,
-  "receiver_fio": null,
-  "phone": null,
-  "items": []
-}}
+{USER_PROMPT}
 
 OCR text:
 \"\"\"
@@ -56,11 +30,11 @@ OCR text:
 """.strip()
 
 
-def extract_json_with_llm(ocr_text: str, tokenizer, model, device) -> dict:
+def extract_json_with_llm(ocr_text, tokenizer, model, device):
     prompt = build_extraction_prompt(ocr_text)
 
     messages = [
-        {"role": "system", "content": "Ты извлекаешь структурированные данные из OCR-текста и отвечаешь только JSON."},
+        {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": prompt},
     ]
 
@@ -82,7 +56,6 @@ def extract_json_with_llm(ocr_text: str, tokenizer, model, device) -> dict:
     generated = outputs[0][inputs.input_ids.shape[1]:]
     answer = tokenizer.decode(generated, skip_special_tokens=True).strip()
 
-    # попытка вытащить JSON из ответа
     match = re.search(r"\{.*\}", answer, flags=re.DOTALL)
     if not match:
         raise ValueError(f"LLM не вернула JSON:\n{answer}")

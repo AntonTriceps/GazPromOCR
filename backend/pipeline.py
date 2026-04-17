@@ -20,7 +20,7 @@ def unload_torch_model(*objects):
         torch.cuda.ipc_collect()
 
 
-def run_pipeline(pdf_path: str) -> dict:
+def run_pipeline(pdf_path):
     # 1. OCR
     ocr_processor, ocr_model, ocr_device, ocr_dtype = load_ocr_model()
     ocr_text = extract_text_from_scanned_pdf(
@@ -31,7 +31,7 @@ def run_pipeline(pdf_path: str) -> dict:
         ocr_dtype,
     )
 
-    # 2. выгрузка OCR
+    # 2. Выгрузка OCR
     unload_torch_model(ocr_model, ocr_processor)
 
     # 3. LLM
@@ -43,7 +43,7 @@ def run_pipeline(pdf_path: str) -> dict:
         llm_device,
     )
 
-    # 4. выгрузка LLM
+    # 4. Выгрузка LLM
     unload_torch_model(llm_model, llm_tokenizer)
 
     return {

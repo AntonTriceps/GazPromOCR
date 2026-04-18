@@ -173,12 +173,39 @@ function rotatePage(index, delta) {
   userRotations.value[index] = normalizeRotation((userRotations.value[index] || 0) + delta)
 }
 
+function getCutAxis(index) {
+  const rot = userRotations.value[index] || 0
+  return (rot === 90 || rot === 270) ? 'y' : 'x'
+}
+
+function getCutStyle(index, screenPct) {
+  const rot = userRotations.value[index] || 0
+  const pctString = `${(screenPct * 100).toFixed(2)}%`
+  if (rot === 0) return { left: pctString }
+  if (rot === 90) return { top: pctString }
+  if (rot === 180) return { right: pctString }
+  if (rot === 270) return { bottom: pctString }
+  return { left: pctString }
+}
+
 function addCutLine(index, event) {
   const target = event.currentTarget
-  const yTarget = event.offsetY
-  const percent = Number((yTarget / target.offsetHeight).toFixed(4))
-  if (percent > 0.02 && percent < 0.98) {
-    pageCutLines.value[index].push(percent)
+  const rot = userRotations.value[index] || 0
+  
+  let screenPct = 0
+  if (rot === 0) {
+    screenPct = event.offsetX / target.offsetWidth
+  } else if (rot === 90) {
+    screenPct = event.offsetY / target.offsetHeight
+  } else if (rot === 180) {
+    screenPct = 1.0 - (event.offsetX / target.offsetWidth)
+  } else if (rot === 270) {
+    screenPct = 1.0 - (event.offsetY / target.offsetHeight)
+  }
+
+  screenPct = Number(screenPct.toFixed(4))
+  if (screenPct > 0.02 && screenPct < 0.98) {
+    pageCutLines.value[index].push(screenPct)
     pageCutLines.value[index].sort((a, b) => a - b)
   }
 }
@@ -209,22 +236,40 @@ async function buildEditedPdf() {
     const sections = [0.0, ...cuts, 1.0]
 
     for (let i = 0; i < sections.length - 1; i++) {
-      const visualTopPct = sections[i]
-      const visualBottomPct = sections[i + 1]
+      const visualLeftPct = sections[i]
+      const visualRightPct = sections[i + 1]
       
-      const pdfTop = height * (1.0 - visualTopPct)
-      const pdfBottom = height * (1.0 - visualBottomPct)
+      let pdfLeft = 0, pdfRight = width, pdfBottom = 0, pdfTop = height
+      const rot = userRotations.value[index] || 0
+
+      if (rot === 0) {
+        pdfLeft = width * visualLeftPct
+        pdfRight = width * visualRightPct
+      } else if (rot === 90) {
+        pdfTop = height * (1.0 - visualLeftPct)
+        pdfBottom = height * (1.0 - visualRightPct)
+      } else if (rot === 180) {
+        pdfRight = width * (1.0 - visualLeftPct)
+        pdfLeft = width * (1.0 - visualRightPct)
+      } else if (rot === 270) {
+        pdfBottom = height * visualLeftPct
+        pdfTop = height * visualRightPct
+      }
+
+      const partWidth = pdfRight - pdfLeft
       const partHeight = pdfTop - pdfBottom
 
       const embeddedPage = await targetPdf.embedPage(page, {
-        left: 0,
-        right: width,
+        left: pdfLeft,
+        right: pdfRight,
         bottom: pdfBottom,
         top: pdfTop
       })
 
-      const newPage = targetPdf.addPage([width, partHeight])
+      const newPage = targetPdf.addPage([partWidth, partHeight])
       newPage.drawPage(embeddedPage, { x: 0, y: 0 })
+      
+      const totalRotation = getTotalRotation(index)
       newPage.setRotation(degrees(totalRotation))
     }
   }
@@ -484,7 +529,7 @@ onBeforeUnmount(() => {
           </div>
           <div class="toolbar-group wrap">
             <span class="toolbar-label">Ножницы:</span>
-            <span class="toolbar-hint">кликните по документу ниже, чтобы добавить линию разреза</span>
+            <span class="toolbar-hint">кликните по странице, чтобы провести <b>вертикальную</b> линию (для нарезки сканов книжных разворотов или столбцов)</span>
           </div>
         </div>
 
@@ -511,7 +556,8 @@ onBeforeUnmount(() => {
                     v-for="(cut, cIndex) in pageCutLines[index]" 
                     :key="cIndex" 
                     class="cut-line" 
-                    :style="{ top: `${cut * 100}%` }"
+                    :class="['cut-axis-' + getCutAxis(index)]"
+                    :style="getCutStyle(index, cut)"
                   >
                     <button class="cut-line-delete" @click.stop="removeCutLine(index, cIndex)">✕</button>
                   </div>

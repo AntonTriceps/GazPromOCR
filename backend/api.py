@@ -2,7 +2,7 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
 from .llm import extract_json_with_llm, load_llm
@@ -30,17 +30,16 @@ app = FastAPI(
 
 
 @app.post("/ocr/generate", response_model=OcrResponse)
-async def generate_ocr(request: Request):
-    pdf_bytes = await request.body()
-    if not pdf_bytes:
-        raise HTTPException(status_code=400, detail="Нужно передать PDF-файл в теле запроса")
+async def generate_ocr(file: UploadFile = File(...)):
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Нужно передать PDF-файл")
 
-    suffix = ".pdf"
+    suffix = Path(file.filename).suffix or ".pdf"
     temp_path = None
 
     try:
         with NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
-            temp_file.write(pdf_bytes)
+            temp_file.write(await file.read())
             temp_path = temp_file.name
 
         ocr_processor, ocr_model, ocr_device, ocr_dtype = load_ocr_model()

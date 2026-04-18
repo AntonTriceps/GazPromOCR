@@ -30,45 +30,45 @@ def extract_text_from_scanned_pdf(pdf_path, processor, model, device, dtype):
     if path.suffix.lower() != ".pdf":
         raise ValueError("Ожидается PDF файл")
 
-    pdf = pdfium.PdfDocument(str(path))
-    page_texts = []
+    with pdfium.PdfDocument(str(path)) as pdf:
+        page_texts = []
 
-    for i in range(len(pdf)):
-        page = pdf[i]
-        image = page.render(scale=2.77).to_pil().convert("RGB")
+        for i in range(len(pdf)):
+            page = pdf[i]
+            image = page.render(scale=2.77).to_pil().convert("RGB")
 
-        conversation = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "image", "image": image},
-                ],
-            }
-        ]
+            conversation = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "image", "image": image},
+                    ],
+                }
+            ]
 
-        inputs = processor.apply_chat_template(
-            conversation,
-            add_generation_prompt=True,
-            tokenize=True,
-            return_dict=True,
-            return_tensors="pt",
-        )
-
-        inputs = {
-            k: v.to(device=device, dtype=dtype) if v.is_floating_point() else v.to(device)
-            for k, v in inputs.items()
-        }
-
-        with torch.inference_mode():
-            output_ids = model.generate(
-                **inputs,
-                max_new_tokens=1024,
+            inputs = processor.apply_chat_template(
+                conversation,
+                add_generation_prompt=True,
+                tokenize=True,
+                return_dict=True,
+                return_tensors="pt",
             )
 
-        generated_ids = output_ids[0, inputs["input_ids"].shape[1]:]
-        text = processor.decode(generated_ids, skip_special_tokens=True).strip()
+            inputs = {
+                k: v.to(device=device, dtype=dtype) if v.is_floating_point() else v.to(device)
+                for k, v in inputs.items()
+            }
 
-        if text:
-            page_texts.append(text)
+            with torch.inference_mode():
+                output_ids = model.generate(
+                    **inputs,
+                    max_new_tokens=1024,
+                )
 
-    return "\n\n".join(page_texts)
+            generated_ids = output_ids[0, inputs["input_ids"].shape[1]:]
+            text = processor.decode(generated_ids, skip_special_tokens=True).strip()
+
+            if text:
+                page_texts.append(text)
+
+        return "\n\n".join(page_texts)

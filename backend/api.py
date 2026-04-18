@@ -3,6 +3,7 @@ from tempfile import NamedTemporaryFile
 from typing import Any
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from .llm import extract_json_with_llm, load_llm
@@ -26,6 +27,14 @@ app = FastAPI(
     title="GazPromOCR API",
     description="API для OCR и генерации структурированного JSON через LLM",
     version="1.0.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 

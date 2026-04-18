@@ -1,8 +1,10 @@
 import json
 import re
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
-from config import LLM_MODEL_NAME, SYSTEM_PROMPT, USER_PROMPT
+
+from .config import LLM_MODEL_NAME, SYSTEM_PROMPT, USER_PROMPT
 
 
 def load_llm():

@@ -26,6 +26,7 @@ pydantic==2.13.2
 pydantic_core==2.46.2
 Pygments==2.20.0
 pypdfium2==5.7.0
+python-multipart==0.0.26
 PyYAML==6.0.3
 regex==2026.4.4
 rich==15.0.0
@@ -42,3 +43,4 @@ transformers==5.5.4
 typer==0.24.1
 typing-inspection==0.4.2
 typing_extensions==4.15.0
+uvicorn==0.44.0

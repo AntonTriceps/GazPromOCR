@@ -1,8 +1,10 @@
 from pathlib import Path
+
 import torch
 import pypdfium2 as pdfium
 from transformers import LightOnOcrForConditionalGeneration, LightOnOcrProcessor
-from config import OCR_MODEL_NAME
+
+from .config import OCR_MODEL_NAME
 
 
 def load_ocr_model():

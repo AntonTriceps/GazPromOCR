@@ -1,9 +1,10 @@
 import gc
 import json
+
 import torch
 
-from ocr import load_ocr_model, extract_text_from_scanned_pdf
-from llm import load_llm, extract_json_with_llm
+from .ocr import load_ocr_model, extract_text_from_scanned_pdf
+from .llm import load_llm, extract_json_with_llm
 
 
 def unload_torch_model(*objects):

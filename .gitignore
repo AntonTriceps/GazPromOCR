@@ -1,4 +1,7 @@
 .files/
 venv/
 __pycache__/
-SKILL.md
+data/
+node_modules/
+dist/
+.env

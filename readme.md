@@ -14,11 +14,3 @@ POST /llm/generate-json
 	uvicorn backend.api:app --reload
 
 После старта Swagger будет доступен по адресу http://127.0.0.1:8000/docs
-
-Запуск Frontend проекта:
-1. Перейти в папку frontend:
-	cd frontend
-2. Установить зависимости:
-   	npm install
-3. Сделать запуск
-   	npm run dev

@@ -2,16 +2,20 @@
 import { computed, onBeforeUnmount, reactive, ref } from 'vue'
 import { PDFDocument, degrees } from 'pdf-lib'
 import VuePdfEmbed from 'vue-pdf-embed'
+import CabinetManager from './CabinetManager.vue'
 
 const apiBase = ref('http://127.0.0.1:8000')
 const file = ref(null)
+const editedFile = ref(null)
 const dragActive = ref(false)
 const step = ref('idle')
 const error = ref('')
 const ocrText = ref('')
 const llmData = ref(null)
 const pdfPreviewUrl = ref('')
-const pdfScale = ref(1.0)
+const previewModalOpen = ref(false)
+const progress = ref(0)
+const pageCount = ref(0)
 const editorOpen = ref(false)
 const editorBusy = ref(false)
 const editorError = ref('')
@@ -27,17 +31,7 @@ function getTotalRotation(index) {
   return normalizeRotation(native + user)
 }
 
-function zoomIn() {
-  if (pdfScale.value < 3.0) pdfScale.value += 0.25
-}
-
-function zoomOut() {
-  if (pdfScale.value > 0.5) pdfScale.value -= 0.25
-}
-
-function resetZoom() {
-  pdfScale.value = 1.0
-}
+// Removed zoom functions
 
 const stats = reactive({
   symbols: 0,
@@ -142,8 +136,8 @@ function selectFile(targetFile) {
   revokePreviewUrl()
   resetEditorState()
   file.value = targetFile
+  editedFile.value = null
   pdfPreviewUrl.value = URL.createObjectURL(targetFile)
-  resetZoom()
   void prepareEditorState(targetFile)
 }
 
@@ -179,12 +173,9 @@ function getCutAxis(index) {
 }
 
 function getCutStyle(index, screenPct) {
-  const rot = userRotations.value[index] || 0
   const pctString = `${(screenPct * 100).toFixed(2)}%`
-  if (rot === 0) return { left: pctString }
-  if (rot === 90) return { top: pctString }
-  if (rot === 180) return { right: pctString }
-  if (rot === 270) return { bottom: pctString }
+  // Всегда используем 'left', так как при повороте контейнера на 90/270 
+  // ось X элемента становится визуальной осью Y.
   return { left: pctString }
 }
 
@@ -192,15 +183,13 @@ function addCutLine(index, event) {
   const target = event.currentTarget
   const rot = userRotations.value[index] || 0
   
-  let screenPct = 0
-  if (rot === 0) {
-    screenPct = event.offsetX / target.offsetWidth
-  } else if (rot === 90) {
-    screenPct = event.offsetY / target.offsetHeight
-  } else if (rot === 180) {
-    screenPct = 1.0 - (event.offsetX / target.offsetWidth)
-  } else if (rot === 270) {
-    screenPct = 1.0 - (event.offsetY / target.offsetHeight)
+  const ratio = event.offsetX / target.offsetWidth
+  let screenPct = ratio
+
+  // Инвертируем проценты для тех поворотов, где визуальный "верх/лево" 
+  // соответствует максимальному значению координаты X в PDF
+  if (rot === 90 || rot === 180) {
+    screenPct = 1.0 - ratio
   }
 
   screenPct = Number(screenPct.toFixed(4))
@@ -242,18 +231,15 @@ async function buildEditedPdf() {
       let pdfLeft = 0, pdfRight = width, pdfBottom = 0, pdfTop = height
       const rot = userRotations.value[index] || 0
 
-      if (rot === 0) {
+      // Мы всегда режем по физической ширине (X) оригинальной страницы, 
+      // так как в UI 90/270 повороты превращают её в визуальную высоту.
+      if (rot === 0 || rot === 270) {
         pdfLeft = width * visualLeftPct
         pdfRight = width * visualRightPct
-      } else if (rot === 90) {
-        pdfTop = height * (1.0 - visualLeftPct)
-        pdfBottom = height * (1.0 - visualRightPct)
-      } else if (rot === 180) {
+      } else {
+        // Для 90 и 180 визуальное начало (0.0) соответствует правой стороне (X=W)
         pdfRight = width * (1.0 - visualLeftPct)
         pdfLeft = width * (1.0 - visualRightPct)
-      } else if (rot === 270) {
-        pdfBottom = height * visualLeftPct
-        pdfTop = height * visualRightPct
       }
 
       const partWidth = pdfRight - pdfLeft
@@ -288,12 +274,10 @@ async function applyPdfEdits() {
     const nextFileName = `${editedFileName.value || 'document'}-edited.pdf`
     const nextFile = new File([editedPdf], nextFileName, { type: 'application/pdf' })
 
-    revokePreviewUrl()
-    file.value = nextFile
-    pdfPreviewUrl.value = URL.createObjectURL(nextFile)
+    editedFile.value = nextFile
+
     resetResults()
     closeEditor()
-    await prepareEditorState(nextFile)
   } catch (err) {
     editorError.value = err instanceof Error ? err.message : 'Не удалось сохранить изменения'
   } finally {
@@ -304,10 +288,16 @@ async function applyPdfEdits() {
 async function runPipeline() {
   error.value = ''
   step.value = 'ocr'
+  progress.value = 5
+
+  const progInterval = setInterval(() => {
+    if (step.value === 'ocr' && progress.value < 45) progress.value += 1
+    if (step.value === 'llm' && progress.value < 90) progress.value += 1
+  }, 400)
 
   try {
     const formData = new FormData()
-    formData.append('file', file.value)
+    formData.append('file', editedFile.value || file.value)
 
     const ocrResponse = await fetch(`${apiBase.value}/ocr/generate`, {
       method: 'POST',
@@ -320,10 +310,12 @@ async function runPipeline() {
     }
 
     ocrText.value = ocrPayload.ocr_text
+    pageCount.value = ocrPayload.page_count || 0
     stats.symbols = ocrText.value.length
     stats.rows = ocrText.value.split(/\n+/).filter(Boolean).length
 
     step.value = 'llm'
+    progress.value = 50
 
     const llmResponse = await fetch(`${apiBase.value}/llm/generate-json`, {
       method: 'POST',
@@ -340,10 +332,13 @@ async function runPipeline() {
 
     llmData.value = llmPayload.data
     stats.fields = countFields(llmData.value)
+    progress.value = 100
     step.value = 'done'
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Неизвестная ошибка'
     step.value = 'error'
+  } finally {
+    clearInterval(progInterval)
   }
 }
 
@@ -430,7 +425,17 @@ onBeforeUnmount(() => {
             </div>
 
             <div class="action-row">
-              <button class="run-button" :disabled="!file" @click="runPipeline">Распознать документ</button>
+              <button class="run-button" :disabled="step === 'ocr' || step === 'llm' || !file" @click="runPipeline">Распознать документ</button>
+            </div>
+
+            <div v-if="step === 'ocr' || step === 'llm'" class="progress-wrap">
+              <div class="progress-labels">
+                <span>{{ step === 'ocr' ? 'Распознавание (OCR)...' : 'Извлечение данных (AI)...' }}</span>
+                <span>{{ progress }}%</span>
+              </div>
+              <div class="progress-bar-bg">
+                <div class="progress-bar-fill" :style="{ width: progress + '%' }"></div>
+              </div>
             </div>
 
             <div v-if="hasResult" class="mini-stats">
@@ -455,18 +460,15 @@ onBeforeUnmount(() => {
             <div v-if="pdfPreviewUrl" class="pdf-container">
               <div class="pdf-toolbar">
                 <div class="toolbar-group">
-                  <button class="icon-btn" @click="zoomOut">−</button>
-                  <span class="zoom-level">{{ Math.round(pdfScale * 100) }}%</span>
-                  <button class="icon-btn" @click="zoomIn">+</button>
-                  <button class="small-btn" @click="resetZoom">Сбросить</button>
+                  <button class="small-btn" @click="previewModalOpen = true">Развернуть</button>
                 </div>
                 <div class="toolbar-group">
                   <button class="small-btn" :disabled="!canOpenEditor" @click="openEditor">Редактировать PDF</button>
                 </div>
               </div>
 
-              <div class="pdf-frame-wrap" :class="{ zoomed: pdfScale !== 1.0 }">
-                <VuePdfEmbed :source="pdfPreviewUrl" :scale="pdfScale" class="custom-pdf" />
+              <div class="pdf-frame-wrap main-preview-wrap">
+                <VuePdfEmbed :source="pdfPreviewUrl" class="custom-pdf" />
               </div>
             </div>
             <div v-else class="empty-state">
@@ -475,6 +477,8 @@ onBeforeUnmount(() => {
           </div>
         </div>
       </section>
+
+      <CabinetManager :api-base="apiBase" :llm-data="llmData" :page-count="pageCount" />
 
       <section class="results panel">
         <div class="section-head results-head">
@@ -587,5 +591,23 @@ onBeforeUnmount(() => {
         </div>
       </section>
     </div>
+
+    <!-- Fullscreen PDF Preview Modal -->
+    <Teleport to="body">
+      <div v-if="previewModalOpen" class="modal-overlay" @click.self="previewModalOpen = false">
+        <section class="editor-modal fullscreen-pdf-modal panel">
+          <div class="editor-header">
+            <div>
+              <div class="eyebrow">Просмотр документа</div>
+              <h2>Оригинальный PDF</h2>
+            </div>
+            <button class="icon-btn close-btn" @click="previewModalOpen = false">✕</button>
+          </div>
+          <div class="fullscreen-pdf-wrap">
+            <VuePdfEmbed :source="pdfPreviewUrl" class="custom-pdf-fullscreen" />
+          </div>
+        </section>
+      </div>
+    </Teleport>
   </div>
 </template>

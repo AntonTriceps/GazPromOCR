@@ -1,5 +1,6 @@
 <script setup>
 import { ref, watch } from 'vue'
+import * as XLSX from 'xlsx'
 
 const props = defineProps({
   apiBase: { type: String, required: true },
@@ -130,6 +131,32 @@ function downloadCard() {
   a.click(); URL.revokeObjectURL(url)
 }
 
+function downloadCardExcel() {
+  if (!lastCard.value) return
+
+  const rows = Object.entries(lastCard.value).map(([key, value]) => {
+    if (value && typeof value === 'object') {
+      return { field: key, value: JSON.stringify(value) }
+    }
+    return { field: key, value: value ?? '' }
+  })
+
+  const worksheet = XLSX.utils.json_to_sheet(rows)
+  const workbook = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Card')
+
+  const buffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' })
+  const blob = new Blob([buffer], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `card-${lastCard.value.serial_number || lastCard.value.id}.xlsx`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 watch(selectedCabinetId, (id) => fetchEntries(id))
 fetchCabinets()
 </script>
@@ -218,6 +245,7 @@ fetchCabinets()
           </div>
           <div class="card-modal-foot">
             <button class="ghost-button" @click="downloadCard">Скачать JSON</button>
+            <button class="ghost-button" @click="downloadCardExcel">Скачать Excel</button>
             <button class="small-btn" @click="cardModal = false">Закрыть</button>
           </div>
         </div>

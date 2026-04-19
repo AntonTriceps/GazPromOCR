@@ -512,6 +512,31 @@ h2 {
   color: #234567;
 }
 
+.data-editor-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.data-editor {
+  width: 100%;
+  min-height: 18rem;
+  max-height: 28rem;
+  resize: vertical;
+  border: 1px solid var(--line);
+  border-radius: 1.2rem;
+  background: rgba(255, 255, 255, 0.74);
+  padding: 1rem;
+  line-height: 1.65;
+  font: 500 0.92rem/1.65 'JetBrains Mono', 'Fira Code', monospace;
+  color: #234567;
+}
+
+.data-editor:focus {
+  outline: none;
+  border-color: var(--line-strong);
+}
+
 .error-message {
   margin: 0;
   color: var(--danger);

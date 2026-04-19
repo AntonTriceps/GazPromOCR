@@ -1,6 +1,7 @@
 <script setup>
-import { computed, onBeforeUnmount, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { PDFDocument, degrees } from 'pdf-lib'
+import * as XLSX from 'xlsx'
 import VuePdfEmbed from 'vue-pdf-embed'
 import CabinetManager from './CabinetManager.vue'
 
@@ -24,6 +25,8 @@ const nativeRotations = ref([])
 const userRotations = ref([])
 const pageCutLines = ref([])
 const editedFileName = ref('')
+const dataEditorText = ref('')
+const dataEditorError = ref('')
 
 const feedbackOpen = ref(false)
 const feedbackSent = ref(false)
@@ -361,6 +364,36 @@ function formatJson(value) {
   return JSON.stringify(value, null, 2)
 }
 
+function flattenJsonToRows(value, path = '', rows = []) {
+  if (Array.isArray(value)) {
+    if (!value.length) {
+      rows.push({ path, value: '[]' })
+      return rows
+    }
+    value.forEach((item, index) => {
+      const nextPath = path ? `${path}[${index}]` : `[${index}]`
+      flattenJsonToRows(item, nextPath, rows)
+    })
+    return rows
+  }
+
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value)
+    if (!entries.length) {
+      rows.push({ path, value: '{}' })
+      return rows
+    }
+    entries.forEach(([key, nested]) => {
+      const nextPath = path ? `${path}.${key}` : key
+      flattenJsonToRows(nested, nextPath, rows)
+    })
+    return rows
+  }
+
+  rows.push({ path, value: value ?? '' })
+  return rows
+}
+
 function downloadBlob(content, fileName, type) {
   const blob = new Blob([content], { type })
   const url = URL.createObjectURL(blob)
@@ -381,6 +414,56 @@ function downloadJson() {
   if (!llmData.value) return
   const baseName = file.value?.name?.replace(/\.pdf$/i, '') || 'result'
   downloadBlob(formatJson(llmData.value), `${baseName}-data.json`, 'application/json;charset=utf-8')
+}
+
+function downloadExcel() {
+  if (!llmData.value) return
+
+  const baseName = file.value?.name?.replace(/\.pdf$/i, '') || 'result'
+  const rows = flattenJsonToRows(llmData.value)
+  const worksheet = XLSX.utils.json_to_sheet(rows.length ? rows : [{ path: '', value: '' }])
+  const workbook = XLSX.utils.book_new()
+
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Data')
+
+  const buffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' })
+  downloadBlob(
+    buffer,
+    `${baseName}-data.xlsx`,
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  )
+}
+
+function applyDataEdits() {
+  if (!dataEditorText.value.trim()) {
+    dataEditorError.value = 'Поле данных не должно быть пустым.'
+    return
+  }
+
+  try {
+    const parsed = JSON.parse(dataEditorText.value)
+    llmData.value = parsed
+    stats.fields = countFields(parsed)
+    dataEditorText.value = formatJson(parsed)
+    dataEditorError.value = ''
+  } catch (err) {
+    dataEditorError.value = err instanceof Error ? err.message : 'Некорректный JSON'
+  }
+}
+
+function resetDataEdits() {
+  dataEditorText.value = llmData.value ? formatJson(llmData.value) : ''
+  dataEditorError.value = ''
+}
+
+function formatDataEdits() {
+  try {
+    const parsed = JSON.parse(dataEditorText.value)
+    dataEditorText.value = formatJson(parsed)
+    dataEditorError.value = ''
+  } catch (err) {
+    dataEditorError.value = err instanceof Error ? err.message : 'Некорректный JSON'
+  }
 }
 
 
@@ -415,6 +498,15 @@ async function submitFeedback() {
 onBeforeUnmount(() => {
   revokePreviewUrl()
 })
+
+watch(
+  llmData,
+  (value) => {
+    dataEditorText.value = value ? formatJson(value) : ''
+    dataEditorError.value = ''
+  },
+  { immediate: true }
+)
 </script>
 
 <template>
@@ -523,6 +615,7 @@ onBeforeUnmount(() => {
           <div class="action-row compact">
             <button class="ghost-button" :disabled="!ocrText" @click="downloadOcr">Скачать текст</button>
             <button class="ghost-button" :disabled="!llmData" @click="downloadJson">Скачать JSON</button>
+            <button class="ghost-button" :disabled="!llmData" @click="downloadExcel">Скачать Excel</button>
           </div>
         </div>
 
@@ -533,7 +626,21 @@ onBeforeUnmount(() => {
           </div>
           <div class="result-block">
             <h2>Данные</h2>
-            <pre>{{ llmData ? formatJson(llmData) : 'Здесь появятся подготовленные данные.' }}</pre>
+            <div v-if="llmData" class="data-editor-wrap">
+              <textarea
+                v-model="dataEditorText"
+                class="data-editor"
+                spellcheck="false"
+                placeholder="Здесь появятся подготовленные данные."
+              ></textarea>
+              <div class="action-row compact">
+                <button class="small-btn" @click="formatDataEdits">Форматировать</button>
+                <button class="small-btn" @click="resetDataEdits">Сбросить</button>
+                <button class="run-button compact-btn" @click="applyDataEdits">Применить</button>
+              </div>
+              <p v-if="dataEditorError" class="error-message">{{ dataEditorError }}</p>
+            </div>
+            <pre v-else>Здесь появятся подготовленные данные.</pre>
           </div>
         </div>
       </section>

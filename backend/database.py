@@ -68,6 +68,13 @@ def init_db():
                 created_at      TEXT    NOT NULL,
                 FOREIGN KEY (entry_id) REFERENCES cabinet_entries(id) ON DELETE SET NULL
             );
+
+            CREATE TABLE IF NOT EXISTS feedback (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                is_positive     INTEGER NOT NULL,
+                comment         TEXT,
+                created_at      TEXT    NOT NULL
+            );
         """)
 
 
@@ -232,6 +239,25 @@ def list_device_cards() -> list[dict[str, Any]]:
                FROM device_cards ORDER BY created_at DESC"""
         ).fetchall()
         return [dict(row) for row in rows]
+
+
+# ---------------------------------------------------------------------------
+#  Feedback
+# ---------------------------------------------------------------------------
+
+def save_feedback(is_positive: bool, comment: str = "") -> dict[str, Any]:
+    now = datetime.now(timezone.utc).isoformat()
+    with _get_connection() as conn:
+        cursor = conn.execute(
+            "INSERT INTO feedback (is_positive, comment, created_at) VALUES (?, ?, ?)",
+            (1 if is_positive else 0, comment, now),
+        )
+        return {
+            "id": cursor.lastrowid,
+            "is_positive": is_positive,
+            "comment": comment,
+            "created_at": now,
+        }
 
 
 # Инициализация при импорте

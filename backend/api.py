@@ -17,6 +17,7 @@ from .database import (
     list_device_cards,
     list_entries,
     save_device_card,
+    save_feedback,
 )
 from .llm import extract_json_with_llm, load_llm
 from .ocr import extract_text_from_scanned_pdf, load_ocr_model
@@ -59,6 +60,11 @@ class DeviceCardCreateRequest(BaseModel):
     production_date: str = ""
     warranty_period: str = ""
     raw_json: dict[str, Any] = Field(default_factory=dict)
+
+
+class FeedbackRequest(BaseModel):
+    is_positive: bool
+    comment: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -233,3 +239,7 @@ def api_save_card(payload: DeviceCardCreateRequest):
         )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Не удалось сохранить карточку: {exc}") from exc
+
+@app.post("/feedback")
+def api_save_feedback(payload: FeedbackRequest):
+    return save_feedback(payload.is_positive, payload.comment)

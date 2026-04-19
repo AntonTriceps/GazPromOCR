@@ -25,6 +25,12 @@ const userRotations = ref([])
 const pageCutLines = ref([])
 const editedFileName = ref('')
 
+const feedbackOpen = ref(false)
+const feedbackSent = ref(false)
+const feedbackType = ref(null) // 'pos' or 'neg'
+const feedbackComment = ref('')
+const feedbackBusy = ref(false)
+
 function getTotalRotation(index) {
   const native = nativeRotations.value[index] || 0
   const user = userRotations.value[index] || 0
@@ -378,6 +384,35 @@ function downloadJson() {
   downloadBlob(formatJson(llmData.value), `${baseName}-data.json`, 'application/json;charset=utf-8')
 }
 
+
+async function submitFeedback() {
+  if (feedbackBusy.value) return
+  feedbackBusy.value = true
+  try {
+    const res = await fetch(`${apiBase.value}/feedback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        is_positive: feedbackType.value === 'pos',
+        comment: feedbackComment.value
+      })
+    })
+    if (res.ok) {
+      feedbackSent.value = true
+      setTimeout(() => {
+        feedbackOpen.value = false
+        feedbackSent.value = false
+        feedbackType.value = null
+        feedbackComment.value = ''
+      }, 2000)
+    }
+  } catch (err) {
+    console.error('Feedback failed', err)
+  } finally {
+    feedbackBusy.value = false
+  }
+}
+
 onBeforeUnmount(() => {
   revokePreviewUrl()
 })
@@ -609,5 +644,49 @@ onBeforeUnmount(() => {
         </section>
       </div>
     </Teleport>
+
+    <!-- Feedback Widget -->
+    <div class="feedback-widget" :class="{ open: feedbackOpen }">
+      <button v-if="!feedbackOpen" class="feedback-toggle" @click="feedbackOpen = true">
+        Обратная связь
+      </button>
+      
+      <div v-else class="feedback-popover panel">
+        <div v-if="!feedbackSent">
+          <h3>Вам нравится сервис?</h3>
+          <div class="feedback-actions">
+            <button 
+              class="feedback-btn pos" 
+              :class="{ active: feedbackType === 'pos' }"
+              @click="feedbackType = 'pos'; submitFeedback()"
+            >👍</button>
+            <button 
+              class="feedback-btn neg" 
+              :class="{ active: feedbackType === 'neg' }"
+              @click="feedbackType = 'neg'"
+            >👎</button>
+          </div>
+          
+          <div v-if="feedbackType === 'neg'" class="feedback-details">
+            <textarea 
+              v-model="feedbackComment" 
+              placeholder="Что нам стоит улучшить?"
+              rows="3"
+            ></textarea>
+            <button 
+              class="run-button compact" 
+              :disabled="feedbackBusy"
+              @click="submitFeedback"
+            >Отправить</button>
+          </div>
+          
+          <button class="feedback-close" @click="feedbackOpen = false">✕</button>
+        </div>
+        <div v-else class="feedback-thanks">
+          <div class="thanks-icon">✨</div>
+          <p>Спасибо за отзыв!</p>
+        </div>
+      </div>
+    </div>
   </div>
 </template>

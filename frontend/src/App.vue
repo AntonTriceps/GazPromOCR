@@ -178,29 +178,22 @@ function getCutAxis(index) {
   return (rot === 90 || rot === 270) ? 'y' : 'x'
 }
 
-function getCutStyle(index, screenPct) {
-  const pctString = `${(screenPct * 100).toFixed(2)}%`
-  // Всегда используем 'left', так как при повороте контейнера на 90/270 
-  // ось X элемента становится визуальной осью Y.
+function getCutStyle(index, pdfXPct) {
+  const pctString = `${(pdfXPct * 100).toFixed(2)}%`
+  // Мы всегда используем физическую координату X страницы. 
+  // Браузер сам повернет линию вместе с контейнером.
   return { left: pctString }
 }
 
 function addCutLine(index, event) {
   const target = event.currentTarget
-  const rot = userRotations.value[index] || 0
-  
-  const ratio = event.offsetX / target.offsetWidth
-  let screenPct = ratio
+  // Теперь всё просто: режем по визуальной горизонтали экрана
+  const rect = target.getBoundingClientRect()
+  const visualPct = (event.clientX - rect.left) / rect.width
+  const pct = Math.max(0, Math.min(1, Number(visualPct.toFixed(4))))
 
-  // Инвертируем проценты для тех поворотов, где визуальный "верх/лево" 
-  // соответствует максимальному значению координаты X в PDF
-  if (rot === 90 || rot === 180) {
-    screenPct = 1.0 - ratio
-  }
-
-  screenPct = Number(screenPct.toFixed(4))
-  if (screenPct > 0.02 && screenPct < 0.98) {
-    pageCutLines.value[index].push(screenPct)
+  if (pct > 0.02 && pct < 0.98) {
+    pageCutLines.value[index].push(pct)
     pageCutLines.value[index].sort((a, b) => a - b)
   }
 }
@@ -216,14 +209,14 @@ async function buildEditedPdf() {
   const sourcePages = sourcePdf.getPages()
 
   for (const [index, page] of sourcePages.entries()) {
-    const totalRotation = getTotalRotation(index)
     const cuts = pageCutLines.value[index] || []
     const width = page.getWidth()
     const height = page.getHeight()
+    const rot = userRotations.value[index] || 0
 
     if (cuts.length === 0) {
       const [copiedPage] = await targetPdf.copyPages(sourcePdf, [index])
-      copiedPage.setRotation(degrees(totalRotation))
+      copiedPage.setRotation(degrees(getTotalRotation(index)))
       targetPdf.addPage(copiedPage)
       continue
     }
@@ -231,25 +224,31 @@ async function buildEditedPdf() {
     const sections = [0.0, ...cuts, 1.0]
 
     for (let i = 0; i < sections.length - 1; i++) {
-      const visualLeftPct = sections[i]
-      const visualRightPct = sections[i + 1]
-      
-      let pdfLeft = 0, pdfRight = width, pdfBottom = 0, pdfTop = height
-      const rot = userRotations.value[index] || 0
+      const pStart = sections[i]
+      const pEnd = sections[i + 1]
 
-      // Мы всегда режем по физической ширине (X) оригинальной страницы, 
-      // так как в UI 90/270 повороты превращают её в визуальную высоту.
-      if (rot === 0 || rot === 270) {
-        pdfLeft = width * visualLeftPct
-        pdfRight = width * visualRightPct
+      let pdfLeft = 0, pdfRight = width, pdfBottom = 0, pdfTop = height
+      
+      if (rot === 0 || rot === 180) {
+        // Режем по ширине (физическая ось X)
+        // 0°: Визуальное Лево = Физический Лево (0)
+        // 180°: Визуальное Лево = Физический Право (W)
+        const vStart = (rot === 0) ? pStart : 1.0 - pStart
+        const vEnd = (rot === 0) ? pEnd : 1.0 - pEnd
+        pdfLeft = Math.max(0, Math.min(width, width * Math.min(vStart, vEnd)))
+        pdfRight = Math.max(0, Math.min(width, width * Math.max(vStart, vEnd)))
       } else {
-        // Для 90 и 180 визуальное начало (0.0) соответствует правой стороне (X=W)
-        pdfRight = width * (1.0 - visualLeftPct)
-        pdfLeft = width * (1.0 - visualRightPct)
+        // Режем по высоте (физическая ось Y)
+        // 90° (CW): Визуальное Лево = Физический Низ (0)
+        // 270° (CCW): Визуальное Лево = Физический Верх (H)
+        const vStart = (rot === 270) ? 1.0 - pStart : pStart
+        const vEnd = (rot === 270) ? 1.0 - pEnd : pEnd
+        pdfBottom = Math.max(0, Math.min(height, height * Math.min(vStart, vEnd)))
+        pdfTop = Math.max(0, Math.min(height, height * Math.max(vStart, vEnd)))
       }
 
-      const partWidth = pdfRight - pdfLeft
-      const partHeight = pdfTop - pdfBottom
+      const partWidth = Math.max(1, pdfRight - pdfLeft)
+      const partHeight = Math.max(1, pdfTop - pdfBottom)
 
       const embeddedPage = await targetPdf.embedPage(page, {
         left: pdfLeft,
@@ -589,24 +588,25 @@ onBeforeUnmount(() => {
             </div>
 
             <div class="editor-page-preview slicer-mode">
+              <!-- Документ, который крутится -->
               <div class="page-render-wrap" :style="{ transform: `rotate(${userRotations[index] || 0}deg)` }">
-                <div class="slicer-overlay" @click.self="addCutLine(index, $event)">
-                  <div 
-                    v-for="(cut, cIndex) in pageCutLines[index]" 
-                    :key="cIndex" 
-                    class="cut-line" 
-                    :class="['cut-axis-' + getCutAxis(index)]"
-                    :style="getCutStyle(index, cut)"
-                  >
-                    <button class="cut-line-delete" @click.stop="removeCutLine(index, cIndex)">✕</button>
-                  </div>
-                </div>
                 <VuePdfEmbed
                   :source="pdfPreviewUrl"
                   :page="index + 1"
                   :scale="1.5"
                   class="editor-pdf-page high-res"
                 />
+              </div>
+              <!-- Слой ножниц, который ВСЕГДА стоит ровно -->
+              <div class="slicer-overlay fixed-overlay" @click.self="addCutLine(index, $event)">
+                <div 
+                  v-for="(cut, cIndex) in pageCutLines[index]" 
+                  :key="cIndex" 
+                  class="cut-line cut-axis-x" 
+                  :style="{ left: `${(cut * 100).toFixed(2)}%` }"
+                >
+                  <button class="cut-line-delete" @click.stop="removeCutLine(index, cIndex)">✕</button>
+                </div>
               </div>
             </div>
           </article>
